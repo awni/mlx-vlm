@@ -68,9 +68,11 @@ def generate(
             return
         prompt_tps = input_ids.size / prompt_time
         gen_tps = (token_count - 1) / gen_time
+        peak_mem = mx.metal.get_peak_memory() / 1e9
 
         print(f"Prompt: {prompt_tps:.3f} tokens-per-sec")
         print(f"Generation: {gen_tps:.3f} tokens-per-sec")
+        print(f"Peak memory: {peak_mem:.3f} GB")
 
     return detokenizer.text
 

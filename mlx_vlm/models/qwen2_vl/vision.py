@@ -168,19 +168,23 @@ class Attention(nn.Module):
 
         q = apply_rotary_pos_emb_vision(mx.expand_dims(q, 0), rotary_pos_emb)[0]
         k = apply_rotary_pos_emb_vision(mx.expand_dims(k, 0), rotary_pos_emb)[0]
-        attention_mask = mx.ones((1, seq_length, seq_length), dtype=x.dtype)
 
-        for i in range(1, len(cu_seqlens)):
-            start = int(cu_seqlens[i - 1])
-            end = int(cu_seqlens[i])
-            attention_mask[start:end, start:end] = 0
-
+#        starts = cu_seqlens[None, :-1]
+#        ends = cu_seqlens[None, 1:]
+#        indices = mx.arange(seq_len)[:, None]
+#        mask = (indices >= starts) & (indices < ends)
+#        mask = mask.any(-1)
+#        mask = mx.where(
+#            mask[None] & mask[:, None],
+#            mx.array(0.0, q.dtype),
+#            mx.array(-float("inf"), q.dtype),
+#        )
         q = q.transpose(0, 2, 1, 3)
         k = k.transpose(0, 2, 1, 3)
         v = v.transpose(0, 2, 1, 3)
 
         output = mx.fast.scaled_dot_product_attention(
-            q, k, v, scale=self.scale, mask=attention_mask
+            q, k, v, scale=self.scale, mask=None
         )
         output = output.transpose(0, 2, 1, 3)
         output = output.reshape(seq_length, -1)
