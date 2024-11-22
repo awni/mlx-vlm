@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -158,30 +158,25 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
 
     def __call__(
-        self, x: mx.array, cu_seqlens: mx.array, rotary_pos_emb: mx.array = None
+        self, x: mx.array, grid_thw: List[int], rotary_pos_emb: mx.array = None
     ) -> mx.array:
         seq_length = x.shape[0]
-        qkv = (
-            self.qkv(x).reshape(seq_length, 3, self.num_heads, -1).transpose(1, 0, 2, 3)
-        )
-        q, k, v = mx.split(qkv, 3)
+        B = grid_thw[0]
+        L = seq_length // B
 
-        q = apply_rotary_pos_emb_vision(mx.expand_dims(q, 0), rotary_pos_emb)[0]
-        k = apply_rotary_pos_emb_vision(mx.expand_dims(k, 0), rotary_pos_emb)[0]
+        qkv = self.qkv(x).reshape(seq_length, 3, -1)
 
-#        starts = cu_seqlens[None, :-1]
-#        ends = cu_seqlens[None, 1:]
-#        indices = mx.arange(seq_len)[:, None]
-#        mask = (indices >= starts) & (indices < ends)
-#        mask = mask.any(-1)
-#        mask = mx.where(
-#            mask[None] & mask[:, None],
-#            mx.array(0.0, q.dtype),
-#            mx.array(-float("inf"), q.dtype),
-#        )
-        q = q.transpose(0, 2, 1, 3)
-        k = k.transpose(0, 2, 1, 3)
-        v = v.transpose(0, 2, 1, 3)
+        q, k, v = mx.split(qkv, 3, axis=1)
+        q = q.reshape(seq_length, self.num_heads, -1)
+        k = k.reshape(seq_length, self.num_heads, -1)
+        v = v.reshape(seq_length, self.num_heads, -1)
+
+        q = apply_rotary_pos_emb_vision(q, rotary_pos_emb)
+        k = apply_rotary_pos_emb_vision(k, rotary_pos_emb)
+
+        q = q.reshape(B, L, self.num_heads, -1).transpose(0, 2, 1, 3)
+        k = k.reshape(B, L, self.num_heads, -1).transpose(0, 2, 1, 3)
+        v = v.reshape(B, L, self.num_heads, -1).transpose(0, 2, 1, 3)
 
         output = mx.fast.scaled_dot_product_attention(
             q, k, v, scale=self.scale, mask=None
@@ -214,10 +209,10 @@ class Qwen2VLVisionBlock(nn.Module):
         self.attn = Attention(dim=config.embed_dim, num_heads=config.num_heads)
         self.mlp = MLP(dim=config.embed_dim, hidden_dim=mlp_hidden_dim)
 
-    def __call__(self, hidden_states, cu_seqlens, rotary_pos_emb) -> mx.array:
+    def __call__(self, hidden_states, grid_thw, rotary_pos_emb) -> mx.array:
         hidden_states = hidden_states + self.attn(
             self.norm1(hidden_states),
-            cu_seqlens=cu_seqlens,
+            grid_thw=grid_thw,
             rotary_pos_emb=rotary_pos_emb,
         )
         hidden_states = hidden_states + self.mlp(self.norm2(hidden_states))
@@ -298,23 +293,12 @@ class VisionModel(nn.Module):
         # Assuming grid_thw has shape (batch_size, 3)
         batch_size = grid_thw.shape[0]
 
-        # Calculate cu_seqlens for each item in the batch
-        cu_seqlens = []
-        for i in range(batch_size):
-            seq_len = grid_thw[i, 1] * grid_thw[i, 2]
-            cu_seqlens.append(mx.repeat(seq_len, grid_thw[i, 0]))
-
-        # Concatenate the cu_seqlens for all items in the batch
-        cu_seqlens = mx.concatenate(cu_seqlens)
-
-        cu_seqlens = mx.cumsum(cu_seqlens.astype(mx.int32), axis=0)
-        cu_seqlens = mx.pad(cu_seqlens, (1, 0), mode="constant", constant_values=0)
-
         encoder_states = (hidden_states,) if output_hidden_states else None
 
+        grid_thw = grid_thw.tolist()[0]
         for blk in self.blocks:
             hidden_states = blk(
-                hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb
+                hidden_states, grid_thw=grid_thw, rotary_pos_emb=rotary_pos_emb
             )
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
