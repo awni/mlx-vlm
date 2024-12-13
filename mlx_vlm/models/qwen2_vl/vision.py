@@ -164,9 +164,8 @@ class Attention(nn.Module):
         B = grid_thw[0]
         L = seq_length // B
 
-        qkv = self.qkv(x).reshape(seq_length, 3, -1)
+        q, k, v = self.qkv(x).split(3, axis=-1)
 
-        q, k, v = mx.split(qkv, 3, axis=1)
         q = q.reshape(seq_length, self.num_heads, -1)
         k = k.reshape(seq_length, self.num_heads, -1)
         v = v.reshape(seq_length, self.num_heads, -1)
@@ -270,7 +269,7 @@ class VisionModel(nn.Module):
             wpos_ids = wpos_ids.flatten()
 
             stacked_pos_ids = mx.stack([hpos_ids, wpos_ids], axis=-1)
-            pos_ids.append(mx.repeat(stacked_pos_ids, t, axis=0))
+            pos_ids.append(mx.tile(stacked_pos_ids, (t, 1)))
 
         pos_ids = mx.concatenate(pos_ids, axis=0)
         max_grid_size = mx.max(grid_thw[:, 1:])

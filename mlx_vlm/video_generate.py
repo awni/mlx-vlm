@@ -29,7 +29,7 @@ def generate(
     input_ids,
     pixel_values,
     mask,
-    temp=0.1,
+    temp=0.0,
     max_tokens=100,
     verbose=True,
     **kwargs,
@@ -101,7 +101,7 @@ def main():
         "--prompt", default="Describe this video.", help="Text prompt for the model"
     )
     parser.add_argument(
-        "--temp", type=float, default=0.5, help="Temperature for generation"
+        "--temp", type=float, default=0.0, help="Temperature for generation"
     )
     parser.add_argument(
         "--max-tokens",

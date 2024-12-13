@@ -77,18 +77,12 @@ class Model(nn.Module):
         image_token_index = self.config.image_token_index
         video_token_index = self.config.video_token_index
 
-        # Positions of <image> tokens in input_ids, assuming batch size is 1
-        image_positions = input_ids == image_token_index
-        if mx.sum(image_positions) == 0:
-            image_positions = input_ids == video_token_index
+        image_idx = np.where(input_ids == image_token_index)
+        if image_idx[0].size == 0:
+            image_idx = np.where(input_ids == video_token_index)
 
-        image_features = image_features.astype(mx.float32)
-        pad_size = inputs_embeds.shape[1] - image_features.shape[1]
-        image_features = mx.pad(image_features, ((0, 0), (0, pad_size), (0, 0)))
-        inputs_embeds = mx.where(
-            image_positions[:, :, None], image_features, inputs_embeds
-        )
-
+        image_idx = map(lambda x: mx.array(x, mx.uint32), image_idx)
+        inputs_embeds[*image_idx] = image_features
         return inputs_embeds
 
     def __call__(
